@@ -6,7 +6,7 @@ use std::net::{TcpListener, TcpStream};
 use std::thread;
 use std::process;
 use crypto::{Lcg, pow_mod, generate_private_key, P, G};
-use chrono::Local; // Imoport de lhorloge
+use chrono::Local; //AJOUT DE L'IMPORT
 
 #[derive(Parser)]
 #[command(version, about = "Secure Chat")]
@@ -46,7 +46,7 @@ fn main() {
 }
 
 fn handle_connection(mut stream: TcpStream, _is_server: bool) {
-    //  KEY EXCHANGE 
+    // --- KEY EXCHANGE ---
     println!("Starting Key Exchange...");
     let private_key = generate_private_key();
     let public_key = pow_mod(G, private_key, P);
@@ -78,11 +78,11 @@ fn handle_connection(mut stream: TcpStream, _is_server: bool) {
                         plain.push(b ^ decrypt_lcg.next_byte());
                     }
                     
-                    // AJOUT DE LA GESTION DE L'HEURE ICI
+                    // GESTION DE L'HEURE
                     let now = Local::now();
                     let timestamp = now.format("%H:%M:%S"); // Format HH:MM:SS
                     
-                    // On change l'affichage pour inclure le timestamp
+                    // affichage pour inclure le timestamp
                     println!("\n[{}] Received: {}", timestamp, String::from_utf8_lossy(&plain));
                     
                     print!("> ");
