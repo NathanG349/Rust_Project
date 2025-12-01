@@ -1,8 +1,9 @@
-mod crypto; // On importe le fichier crypto.rs
+mod crypto; // Import crypto.rs
 
 use clap::{Parser, Subcommand};
-use colored::*; // Import des couleurs
-use chrono::Local; // Import de l'heure
+use colored::*;
+use chrono::Local;
+use std::fs::OpenOptions; // Pour ouvrir les fichiers
 use std::io::{self, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::thread;
@@ -10,7 +11,7 @@ use std::process;
 use crypto::{Lcg, pow_mod, generate_private_key, P, G};
 
 #[derive(Parser)]
-#[command(version, about = "Secure Stream Cipher Chat")]
+#[command(version, about = "Secure Stream Cipher Chat with Logging")]
 struct Args {
     #[command(subcommand)]
     command: Commands,
@@ -18,9 +19,7 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Mode Serveur
     Server { port: u16 },
-    /// Mode Client
     Client { address: String },
 }
 
@@ -37,7 +36,7 @@ fn main() {
 
             if let Ok((stream, addr)) = listener.accept() {
                 println!("{}", format!("[CONNECTION] Client connected from {}", addr).green().bold());
-                handle_connection(stream, true); // true = ici le serveur
+                handle_connection(stream, true);
             }
         }
         Commands::Client { address } => {
@@ -45,7 +44,7 @@ fn main() {
             match TcpStream::connect(&address) {
                 Ok(stream) => {
                     println!("{}", "Connected! Initiating handshake...".green().bold());
-                    handle_connection(stream, false); // false = ici le client
+                    handle_connection(stream, false);
                 }
                 Err(e) => eprintln!("{}", format!("Failed to connect: {}", e).red()),
             }
@@ -54,8 +53,8 @@ fn main() {
 }
 
 fn handle_connection(mut stream: TcpStream, is_server: bool) {
-    // --- 1. Échange Diffie-Hellman ---
-    println!("\n{}", " KEY EXCHANGE START ---".purple());
+    // Échange Diffie-Hellman
+    println!("\n{}", "KEY EXCHANGE START".purple());
     
     let private_key = generate_private_key();
     let public_key = pow_mod(G, private_key, P);
@@ -69,27 +68,25 @@ fn handle_connection(mut stream: TcpStream, is_server: bool) {
     stream.read_exact(&mut buffer).unwrap();
     let remote_public_key = u64::from_be_bytes(buffer);
 
-    // Calculer le secret
     let shared_secret = pow_mod(remote_public_key, private_key, P);
     
     println!("Shared Secret established: {:X}", shared_secret);
-    println!("{}", " SECURE CHANNEL READY ---".purple());
+    println!("{}", "SECURE CHANNEL READY ---".purple());
 
-    //  Initialisation Crypto 
+    // Initialisation Crypto
     let seed = shared_secret;
     let mut encrypt_lcg = Lcg::new(seed);
     let mut decrypt_lcg = Lcg::new(seed);
 
-    //  Chat Loop 
     let mut read_stream = stream.try_clone().expect("Failed to clone stream");
     
-    // Thread RÉCEPTION
+    // Thread RÉCEPTION 
     thread::spawn(move || {
         let mut buffer = [0u8; 1024];
         loop {
             match read_stream.read(&mut buffer) {
                 Ok(0) => { 
-                    println!("\n{}", " Connection closed by peer.".red()); 
+                    println!("\n{}", "Connection closed by peer.".red()); 
                     process::exit(0); 
                 }
                 Ok(n) => {
@@ -103,24 +100,24 @@ fn handle_connection(mut stream: TcpStream, is_server: bool) {
                     }
 
                     let msg_str = String::from_utf8_lossy(&plain_bytes);
-                    
-                    // GESTION HEURE
                     let time = Local::now().format("%H:%M:%S");
 
-                    // GESTION COULEURS
-                    // Si je suis serveur, l'autre est Client (et inversement)
+                    // LOG DANS FICHIER
+                    // Si je suis serveur, le message vient du Client, et inversement
+                    let log_prefix = if is_server { "[CLIENT]" } else { "[SERVER]" };
+                    log_message(log_prefix, &msg_str);
+
+                    // Affichage Écran
                     let remote_name = if is_server { "CLIENT" } else { "SERVER" };
                     let color_name = if is_server { remote_name.cyan() } else { remote_name.yellow() };
 
-                    // Affichage Joli : [19:42:01] [CLIENT] Salut
-                    print!("\r"); // Efface la ligne de prompt actuelle
+                    print!("\r"); 
                     println!("{} [{}] {}", 
                         format!("[{}]", time).dimmed(),
                         color_name, 
                         msg_str.bold()
                     );
                     
-                    // Réafficher le prompt
                     print!("{}", "> ".blue());
                     io::stdout().flush().unwrap();
                 }
@@ -129,7 +126,7 @@ fn handle_connection(mut stream: TcpStream, is_server: bool) {
         }
     });
 
-    // Boucle ENVOI
+    // Boucle ENVOI 
     print!("{}", "> ".blue());
     io::stdout().flush().unwrap();
     
@@ -147,11 +144,13 @@ fn handle_connection(mut stream: TcpStream, is_server: bool) {
             continue; 
         }
 
-        // Commande pour quitter
         if clean_input == "/quit" {
             println!("{}", "Exiting...".red());
             break;
         }
+
+        // LOG DANS FICHIER
+        log_message("[ME]", clean_input);
 
         // Chiffrement
         let mut encrypted_bytes = Vec::new();
@@ -160,13 +159,30 @@ fn handle_connection(mut stream: TcpStream, is_server: bool) {
             encrypted_bytes.push(byte ^ key_byte);
         }
 
-        // Envoi
+        // Envoi sur le réseau
         if stream.write_all(&encrypted_bytes).is_err() {
             break;
         }
         
-        // Remettre le prompt
         print!("{}", "> ".blue());
         io::stdout().flush().unwrap();
+    }
+}
+
+//FONCTION DE SAUVEGARDE
+fn log_message(prefix: &str, message: &str) {
+    let now = Local::now();
+    let timestamp = now.format("%Y-%m-%d %H:%M:%S");
+    
+    // Ouvre "chat_history.txt" en mode ajout (crée le fichier s'il n'existe pas)
+    let file_result = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("chat_history.txt");
+
+    if let Ok(mut file) = file_result {
+        if let Err(e) = writeln!(file, "[{}] {} {}", timestamp, prefix, message) {
+            eprintln!("Log error: {}", e);
+        }
     }
 }
