@@ -1,9 +1,9 @@
 // Ce fichier contient toute la cryptographie du projet
 use rand::Rng;
 
-//  CONSTANTES 
+//  CONSTANTES
 pub const P: u64 = 0xD87FA3E291B4C7F3; // Nombre premier
-pub const G: u64 = 2;                  // Générateur
+pub const G: u64 = 2; // Générateur
 
 // Paramètres LCG
 const LCG_A: u64 = 1103515245;
